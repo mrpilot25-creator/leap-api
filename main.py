@@ -1,18 +1,4 @@
 from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/")
-def home():
-    return {
-        "status": "LEAP API running",
-        "endpoints": {
-            "radar": "/radar",
-            "scan": "/scan?ticker=AAPL"
-        }
-    }
-
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import numpy as np
@@ -20,12 +6,14 @@ import pandas as pd
 from scipy.stats import norm
 from scipy.optimize import brentq
 
+# =========================
+# CREATE APP (MUST BE FIRST)
+# =========================
 app = FastAPI()
 
 # =========================
-# CORS (IMPORTANT for Base44)
+# CORS (for Base44)
 # =========================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,15 +23,27 @@ app.add_middleware(
 )
 
 # =========================
-# BLACK-SCHOLES
+# ROOT ROUTE (VISIBLE IN BROWSER)
 # =========================
+@app.get("/")
+def home():
+    return {
+        "status": "LEAP API LIVE",
+        "endpoints": {
+            "radar": "/radar",
+            "scan": "/scan?ticker=AAPL"
+        }
+    }
 
+# =========================
+# BLACK-SCHOLES FUNCTIONS
+# =========================
 def bs_call(S, K, T, r, sigma):
     if sigma <= 0 or T <= 0:
         return np.nan
-    d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
-    d2 = d1 - sigma*np.sqrt(T)
-    return S * norm.cdf(d1) - K * np.exp(-r*T) * norm.cdf(d2)
+    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
 
 
 def implied_vol(price, S, K, T, r):
@@ -52,29 +52,30 @@ def implied_vol(price, S, K, T, r):
     except:
         return np.nan
 
-# =========================
-# DELTA
-# =========================
 
 def delta(S, K, T, r, sigma):
-    d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+    if sigma <= 0 or T <= 0:
+        return np.nan
+    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
     return norm.cdf(d1)
 
 # =========================
-# SCAN ENGINE
+# CORE SCANNER
 # =========================
-
 def scan_stock(ticker):
 
     t = yf.Ticker(ticker)
 
     try:
-        S = t.history(period="1d")["Close"].iloc[-1]
+        hist = t.history(period="1d")
+        if hist.empty:
+            return []
+        S = hist["Close"].iloc[-1]
     except:
         return []
 
     expiries = t.options
-    if len(expiries) == 0:
+    if not expiries:
         return []
 
     expiry = expiries[-1]
@@ -82,16 +83,18 @@ def scan_stock(ticker):
     T = (pd.to_datetime(expiry) - pd.Timestamp.today()).days / 365
     r = 0.04
 
-    chain = t.option_chain(expiry).calls
+    try:
+        chain = t.option_chain(expiry).calls
+    except:
+        return []
 
     results = []
 
     for _, row in chain.iterrows():
+        K = row.get("strike")
+        price = row.get("lastPrice")
 
-        K = row["strike"]
-        price = row["lastPrice"]
-
-        if price <= 0:
+        if not price or price <= 0:
             continue
 
         iv = implied_vol(price, S, K, T, r)
@@ -99,28 +102,26 @@ def scan_stock(ticker):
             continue
 
         d = delta(S, K, T, r, iv)
+        if np.isnan(d):
+            continue
 
         score = d / (iv + 1e-6)
 
-        signal = (
-            "STRONG BUY" if score > 2.5 else
-            "BUY" if score > 1.8 else
-            "WATCH"
-        )
+        signal = "STRONG BUY" if score > 2.5 else "BUY" if score > 1.8 else "WATCH"
 
         results.append({
             "ticker": ticker,
-            "strike": K,
+            "strike": float(K),
             "iv": float(iv),
             "delta": float(d),
             "score": float(score),
             "signal": signal
         })
 
-    df = pd.DataFrame(results)
-
-    if df.empty:
+    if not results:
         return []
+
+    df = pd.DataFrame(results)
 
     df = df[(df["delta"] > 0.65) & (df["delta"] < 0.95)]
 
@@ -129,9 +130,8 @@ def scan_stock(ticker):
     return df.to_dict(orient="records")
 
 # =========================
-# API ENDPOINTS
+# RADAR ENDPOINT
 # =========================
-
 TICKERS = ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","AMD","SPY","QQQ"]
 
 @app.get("/radar")
@@ -141,18 +141,24 @@ def radar():
 
     for t in TICKERS:
         try:
-            all_results.extend(scan_stock(t))
+            data = scan_stock(t)
+            all_results.extend(data)
         except:
             continue
+
+    if not all_results:
+        return {"best_trade": None, "top_trades": []}
 
     all_results = sorted(all_results, key=lambda x: x["score"], reverse=True)
 
     return {
-        "best_trade": all_results[0] if all_results else None,
+        "best_trade": all_results[0],
         "top_trades": all_results[:20]
     }
 
-
+# =========================
+# SINGLE STOCK SCAN
+# =========================
 @app.get("/scan")
 def scan(ticker: str):
 
