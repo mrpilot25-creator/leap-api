@@ -1,3 +1,13 @@
+@app.get("/")
+def home():
+    return {
+        "status": "LEAP API running",
+        "endpoints": {
+            "radar": "/radar",
+            "scan": "/scan?ticker=AAPL"
+        }
+    }
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
