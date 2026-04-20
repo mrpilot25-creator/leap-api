@@ -1,7 +1,3 @@
-Start command:
-uvicorn main:app --host 0.0.0.0 --port 10000
-
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
