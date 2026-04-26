@@ -132,7 +132,7 @@ def scan_stock(ticker):
 # =========================
 # RADAR ENDPOINT
 # =========================
-TICKERS = ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","AMD","SPY","QQQ"]
+TICKERS = ["AMZN", "NVDA", "INTC", "EXPE", "GOOG", "ABDE", "NFLX", "ORCL", "NOW", "BKNG" ]
 
 @app.get("/radar")
 def radar():
