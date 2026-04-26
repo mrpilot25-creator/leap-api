@@ -152,8 +152,8 @@ def radar():
     all_results = sorted(all_results, key=lambda x: x["score"], reverse=True)
 
     return {
-        "best_trade": all_results[0],
-        "top_trades": all_results[:20]
+        "best_trade": all_results[5],
+        "top_trades": all_results[:50]
     }
 
 # =========================
